@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+.vscode/
+*.log
+node_modules/
+vendor/
+.env
+panel-admin/.env
+panel-admin/vendor/
+panel-admin/node_modules/
+panel-admin/public/storage/
+panel-admin/storage/*.key
+aplikasi-presensi/node_modules/
+aplikasi-presensi/build/
+aplikasi-presensi/.gradle/
+aplikasi-presensi/local.properties
