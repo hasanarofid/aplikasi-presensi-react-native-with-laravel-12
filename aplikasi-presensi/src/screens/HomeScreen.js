@@ -1,17 +1,30 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  SafeAreaView,
+  StatusBar,
+  Image,
+} from 'react-native';
 import useAuthStore from '../store/useAuthStore';
 import apiClient from '../api/client';
 import GetLocation from 'react-native-get-location';
 import { WebView } from 'react-native-webview';
+import { COLORS, SPACING, FONTS, SHADOWS } from '../constants/theme';
 
 const HomeScreen = () => {
   const { user } = useAuthStore();
   const [settings, setSettings] = React.useState(null);
   const [location, setLocation] = React.useState(null);
+  const [distance, setDistance] = React.useState(null);
 
   React.useEffect(() => {
     fetchSettings();
+    getCurrentLocation();
   }, []);
 
   const fetchSettings = async () => {
@@ -21,6 +34,17 @@ const HomeScreen = () => {
     } catch (e) {}
   };
 
+  const getCurrentLocation = async () => {
+    try {
+      const loc = await GetLocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 15000,
+      });
+      setLocation(loc);
+      // If settings are loaded, we would calculate distance here
+    } catch (error) {}
+  };
+
   const handlePresence = async (type) => {
     try {
       const loc = await GetLocation.getCurrentPosition({
@@ -28,65 +52,392 @@ const HomeScreen = () => {
         timeout: 15000,
       });
       setLocation(loc);
-
-      // Simple radius check (Haversine or similar usually, but keeping it simple for now)
-      // Logic would go here to compare loc with settings.office_lat/lng
-      // and either allow clock-in or redirect to submission form.
-      
       Alert.alert('Info', `Location: ${loc.latitude}, ${loc.longitude}. Radius check would happen here.`);
     } catch (error) {
       Alert.alert('Error', 'Could not get location. Enable GPS.');
     }
   };
 
+  const mapHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+          body { margin: 0; padding: 0; }
+          #map { height: 100vh; width: 100vw; }
+          .marker-pin {
+            width: 30px;
+            height: 30px;
+            border-radius: 50% 50% 50% 0;
+            background: #1E3A8A;
+            position: absolute;
+            transform: rotate(-45deg);
+            left: 50%;
+            top: 50%;
+            margin: -15px 0 0 -15px;
+          }
+          .marker-pin::after {
+            content: '';
+            width: 14px;
+            height: 14px;
+            margin: 8px 0 0 8px;
+            background: #fff;
+            position: absolute;
+            border-radius: 50%;
+          }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script>
+          const lat = ${location?.latitude || -7.250445};
+          const lng = ${location?.longitude || 112.768845};
+          const officeLat = ${settings?.office_latitude || -7.250445};
+          const officeLng = ${settings?.office_longitude || 112.768845};
+          const radius = ${settings?.radius_meters || 100};
+
+          const map = L.map('map', { zoomControl: false }).setView([lat, lng], 15);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+          }).addTo(map);
+
+          // User Marker
+          L.circleMarker([lat, lng], {
+            radius: 8,
+            fillColor: "#3B82F6",
+            color: "#fff",
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 1
+          }).addTo(map);
+
+          // Office Marker & Radius
+          L.circle([officeLat, officeLng], {
+            color: '#1E3A8A',
+            fillColor: '#1E3A8A',
+            fillOpacity: 0.1,
+            radius: radius
+          }).addTo(map);
+          
+          L.marker([officeLat, officeLng]).addTo(map);
+
+          // Focus both markers if visible
+          const bounds = L.latLngBounds([[lat, lng], [officeLat, officeLng]]);
+          map.fitBounds(bounds, { padding: [50, 50] });
+        </script>
+      </body>
+    </html>
+  `;
+
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.welcome}>Hello, {user?.name}</Text>
-        <Text style={styles.shift}>Shift: {user?.shift?.name} ({user?.shift?.start_time} - {user?.shift?.end_time})</Text>
-      </View>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Header Section */}
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <View>
+              <Text style={styles.greeting}>Welcome back,</Text>
+              <Text style={styles.userName}>{user?.name}</Text>
+            </View>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{user?.name?.charAt(0)}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.shiftCard}>
+            <View style={styles.shiftInfo}>
+              <Text style={styles.shiftLabel}>Current Shift</Text>
+              <Text style={styles.shiftName}>{user?.shift?.name || 'General'}</Text>
+            </View>
+            <View style={styles.shiftDivider} />
+            <View style={styles.shiftTime}>
+              <Text style={styles.shiftLabel}>Schedule</Text>
+              <Text style={styles.shiftHours}>
+                {user?.shift?.start_time || '08:00'} - {user?.shift?.end_time || '17:00'}
+              </Text>
+            </View>
+          </View>
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Distance to Office</Text>
-        <Text style={styles.distance}>-- m</Text>
-        <Text style={styles.radiusNote}>Radius permit: {settings?.radius_meters}m</Text>
-      </View>
+        <View style={styles.body}>
+          {/* Map Card */}
+          <Text style={styles.sectionTitle}>Your Location</Text>
+          <View style={styles.mapCard}>
+            <View style={styles.mapWrapper}>
+              <WebView
+                originWhitelist={['*']}
+                source={{ html: mapHtml }}
+                style={styles.map}
+                scrollEnabled={false}
+              />
+              <View style={styles.mapOverlay}>
+                <View style={styles.distanceBadge}>
+                  <Text style={styles.distanceValue}>-- m</Text>
+                  <Text style={styles.distanceLabel}>to office</Text>
+                </View>
+                <View style={styles.radiusLegend}>
+                  <View style={styles.dot} />
+                  <Text style={styles.legendText}>Radius: {settings?.radius_meters || 100}m</Text>
+                </View>
+              </View>
+            </View>
+          </View>
 
-      <View style={styles.actions}>
-        <TouchableOpacity 
-          style={[styles.btn, styles.btnIn]} 
-          onPress={() => handlePresence('in')}
-        >
-          <Text style={styles.btnText}>Clock In</Text>
-        </TouchableOpacity>
+          {/* Action Buttons */}
+          <Text style={styles.sectionTitle}>Attendance Actions</Text>
+          <View style={styles.actionsGrid}>
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.btnIn]} 
+              onPress={() => handlePresence('in')}
+            >
+              <View style={styles.iconCircle}>
+                <Text style={styles.btnIcon}>↓</Text>
+              </View>
+              <Text style={styles.actionBtnText}>Clock In</Text>
+            </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.btn, styles.btnOut]} 
-          onPress={() => handlePresence('out')}
-        >
-          <Text style={styles.btnText}>Clock Out</Text>
-        </TouchableOpacity>
-      </View>
-      
-      {/* WebView for Leaflet Map would be integrated here */}
-    </ScrollView>
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.btnOut]} 
+              onPress={() => handlePresence('out')}
+            >
+              <View style={styles.iconCircle}>
+                <Text style={styles.btnIcon}>↑</Text>
+              </View>
+              <Text style={styles.actionBtnText}>Clock Out</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Info Section */}
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>
+              Please ensure your GPS is active and you are within the allowed radius to record your attendance.
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB', padding: 20 },
-  header: { marginBottom: 30 },
-  welcome: { fontSize: 24, fontWeight: 'bold', color: '#111827' },
-  shift: { fontSize: 14, color: '#6B7280' },
-  card: { backgroundColor: '#fff', pading: 20, borderRadius: 15, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.1, elevation: 3, paddingVertical: 20 },
-  cardTitle: { color: '#6B7280', fontSize: 16 },
-  distance: { fontSize: 36, fontWeight: 'bold', color: '#312E81', marginVertical: 10 },
-  radiusNote: { color: '#10B981', fontWeight: '500' },
-  actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 },
-  btn: { flex: 1, padding: 20, borderRadius: 12, alignItems: 'center', marginHorizontal: 5 },
-  btnIn: { backgroundColor: '#312E81' },
-  btnOut: { backgroundColor: '#EF4444' },
-  btnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  header: {
+    backgroundColor: COLORS.primary,
+    paddingTop: SPACING.lg,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: 60,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  greeting: {
+    fontSize: 14,
+    color: '#CBD5E1',
+    fontWeight: FONTS.medium,
+  },
+  userName: {
+    fontSize: 22,
+    fontWeight: FONTS.bold,
+    color: COLORS.white,
+  },
+  avatar: {
+    width: 45,
+    height: 45,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  avatarText: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: FONTS.bold,
+  },
+  shiftCard: {
+    position: 'absolute',
+    bottom: -40,
+    left: SPACING.lg,
+    right: SPACING.lg,
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: SPACING.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    ...SHADOWS.medium,
+  },
+  shiftInfo: {
+    flex: 1,
+  },
+  shiftTime: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  shiftDivider: {
+    width: 1,
+    height: '100%',
+    backgroundColor: COLORS.border,
+    marginHorizontal: SPACING.md,
+  },
+  shiftLabel: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginBottom: 4,
+  },
+  shiftName: {
+    fontSize: 16,
+    fontWeight: FONTS.semiBold,
+    color: COLORS.primary,
+  },
+  shiftHours: {
+    fontSize: 16,
+    fontWeight: FONTS.semiBold,
+    color: COLORS.secondary,
+  },
+  body: {
+    marginTop: 60,
+    paddingHorizontal: SPACING.lg,
+  },
+  mapCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 24,
+    height: 220,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...SHADOWS.medium,
+  },
+  mapWrapper: {
+    flex: 1,
+  },
+  map: {
+    flex: 1,
+  },
+  mapOverlay: {
+    position: 'absolute',
+    bottom: SPACING.md,
+    left: SPACING.md,
+    right: SPACING.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  distanceBadge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    ...SHADOWS.light,
+  },
+  distanceValue: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: FONTS.bold,
+  },
+  distanceLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    marginLeft: 4,
+    fontWeight: FONTS.medium,
+  },
+  radiusLegend: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
+    marginRight: 6,
+    opacity: 0.6,
+  },
+  legendText: {
+    color: COLORS.text,
+    fontSize: 10,
+    fontWeight: FONTS.bold,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: FONTS.bold,
+    color: COLORS.text,
+    marginTop: SPACING.xl,
+    marginBottom: SPACING.md,
+  },
+  actionsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  actionBtn: {
+    flex: 1,
+    padding: SPACING.lg,
+    borderRadius: 20,
+    alignItems: 'center',
+    marginHorizontal: 5,
+    ...SHADOWS.medium,
+  },
+  btnIn: {
+    backgroundColor: COLORS.primary,
+  },
+  btnOut: {
+    backgroundColor: COLORS.error,
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  btnIcon: {
+    color: COLORS.white,
+    fontSize: 20,
+    fontWeight: FONTS.bold,
+  },
+  actionBtnText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: FONTS.bold,
+  },
+  infoBox: {
+    marginTop: SPACING.xl,
+    backgroundColor: '#EFF6FF',
+    padding: SPACING.md,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.secondary,
+    marginBottom: SPACING.xl,
+  },
+  infoText: {
+    fontSize: 13,
+    color: COLORS.secondary,
+    lineHeight: 18,
+  },
 });
 
 export default HomeScreen;
+
