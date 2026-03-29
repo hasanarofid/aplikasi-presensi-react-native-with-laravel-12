@@ -15,17 +15,31 @@ import apiClient from '../api/client';
 import GetLocation from 'react-native-get-location';
 import { WebView } from 'react-native-webview';
 import { COLORS, SPACING, FONTS, SHADOWS } from '../constants/theme';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
-const HomeScreen = () => {
+const HomeScreen = ({ navigation, route }) => {
   const { user } = useAuthStore();
   const [settings, setSettings] = React.useState(null);
   const [location, setLocation] = React.useState(null);
   const [distance, setDistance] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [locationLoading, setLocationLoading] = React.useState(false);
+  const [todayAttendance, setTodayAttendance] = React.useState(null);
 
   React.useEffect(() => {
     fetchSettings();
     getCurrentLocation();
+    fetchTodayStatus();
   }, []);
+
+  // Handle photo returned from CameraScreen
+  React.useEffect(() => {
+    if (route.params?.photo && route.params?.type) {
+      submitPresence(route.params.type, route.params.photo);
+      // Reset params so it doesn't trigger again on re-render
+      navigation.setParams({ photo: null, type: null });
+    }
+  }, [route.params?.photo]);
 
   const fetchSettings = async () => {
     try {
@@ -34,27 +48,124 @@ const HomeScreen = () => {
     } catch (e) {}
   };
 
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // metres
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return Math.round(R * c);
+  };
+
   const getCurrentLocation = async () => {
+    setLocationLoading(true);
     try {
       const loc = await GetLocation.getCurrentPosition({
         enableHighAccuracy: true,
         timeout: 15000,
       });
       setLocation(loc);
-      // If settings are loaded, we would calculate distance here
-    } catch (error) {}
+      if (settings) {
+        const d = calculateDistance(
+          loc.latitude,
+          loc.longitude,
+          settings.office_latitude,
+          settings.office_longitude
+        );
+        setDistance(d);
+      }
+    } catch (error) {
+      console.log('Location error:', error);
+    } finally {
+      setLocationLoading(false);
+    }
   };
 
   const handlePresence = async (type) => {
+    if (!location) {
+      setLocationLoading(true);
+      try {
+        const loc = await GetLocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000,
+        });
+        setLocation(loc);
+        if (settings) {
+          const d = calculateDistance(
+            loc.latitude,
+            loc.longitude,
+            settings.office_latitude,
+            settings.office_longitude
+          );
+          setDistance(d);
+          if (d > settings.radius_meters) {
+            Alert.alert('Outside Radius', `You are ${d}m away. Max radius is ${settings.radius_meters}m.`);
+            return;
+          }
+          navigation.navigate('Camera', { type });
+        }
+      } catch (error) {
+        Alert.alert('Location Error', 'Failed to get location. Enable GPS and try again.');
+      } finally {
+        setLocationLoading(false);
+      }
+      return;
+    }
+
+    if (settings && distance > settings.radius_meters) {
+      Alert.alert('Outside Radius', `You are ${distance}m away. Max radius is ${settings.radius_meters}m.`);
+      return;
+    }
+
+    navigation.navigate('Camera', { type });
+  };
+
+  const fetchTodayStatus = async () => {
     try {
-      const loc = await GetLocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 15000,
+      const today = new Date().toISOString().split('T')[0];
+      const res = await apiClient.get(`/attendance-history?start_date=${today}&end_date=${today}`);
+      if (res.data && res.data.length > 0) {
+        setTodayAttendance(res.data[0]);
+      } else {
+        setTodayAttendance(null);
+      }
+    } catch (e) {}
+  };
+
+  const submitPresence = async (type, photo) => {
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('lat', location.latitude);
+      formData.append('lng', location.longitude);
+      
+      const photoName = photo.path.split('/').pop();
+      formData.append('photo', {
+        uri: `file://${photo.path}`,
+        type: 'image/jpeg',
+        name: photoName,
       });
-      setLocation(loc);
-      Alert.alert('Info', `Location: ${loc.latitude}, ${loc.longitude}. Radius check would happen here.`);
+
+      const endpoint = type === 'in' ? '/clock-in' : '/clock-out';
+      const res = await apiClient.post(endpoint, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      Alert.alert('Success', res.data.message);
+      fetchTodayStatus();
     } catch (error) {
-      Alert.alert('Error', 'Could not get location. Enable GPS.');
+      const msg = error.response?.data?.message || 'Failed to submit presence';
+      Alert.alert('Error', msg);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -117,8 +228,8 @@ const HomeScreen = () => {
           // Office Marker & Radius
           L.circle([officeLat, officeLng], {
             color: '#1E3A8A',
-            fillColor: '#1E3A8A',
-            fillOpacity: 0.1,
+            fillColor: '#3B82F6',
+            fillOpacity: 0.3,
             radius: radius
           }).addTo(map);
           
@@ -175,10 +286,19 @@ const HomeScreen = () => {
                 scrollEnabled={false}
               />
               <View style={styles.mapOverlay}>
-                <View style={styles.distanceBadge}>
-                  <Text style={styles.distanceValue}>-- m</Text>
-                  <Text style={styles.distanceLabel}>to office</Text>
-                </View>
+                <TouchableOpacity 
+                  style={styles.distanceBadge} 
+                  onPress={getCurrentLocation}
+                  disabled={locationLoading}
+                >
+                  {locationLoading ? (
+                    <Text style={styles.distanceValue}>...</Text>
+                  ) : (
+                    <Text style={styles.distanceValue}>{distance !== null ? distance : '--'}</Text>
+                  )}
+                  <Text style={styles.distanceLabel}>m to office</Text>
+                  <Ionicons name="refresh-outline" size={12} color="rgba(255,255,255,0.7)" style={{ marginLeft: 4 }} />
+                </TouchableOpacity>
                 <View style={styles.radiusLegend}>
                   <View style={styles.dot} />
                   <Text style={styles.legendText}>Radius: {settings?.radius_meters || 100}m</Text>
@@ -191,23 +311,37 @@ const HomeScreen = () => {
           <Text style={styles.sectionTitle}>Attendance Actions</Text>
           <View style={styles.actionsGrid}>
             <TouchableOpacity 
-              style={[styles.actionBtn, styles.btnIn]} 
+              style={[
+                styles.actionBtn, 
+                styles.btnIn,
+                todayAttendance?.clock_in && styles.btnDisabled
+              ]} 
               onPress={() => handlePresence('in')}
+              disabled={!!todayAttendance?.clock_in || loading}
             >
               <View style={styles.iconCircle}>
-                <Text style={styles.btnIcon}>↓</Text>
+                <Ionicons name="log-in-outline" size={24} color={COLORS.white} />
               </View>
-              <Text style={styles.actionBtnText}>Clock In</Text>
+              <Text style={styles.actionBtnText}>
+                {todayAttendance?.clock_in ? `In at ${todayAttendance.clock_in.substring(0, 5)}` : 'Clock In'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
-              style={[styles.actionBtn, styles.btnOut]} 
+              style={[
+                styles.actionBtn, 
+                styles.btnOut,
+                (!todayAttendance?.clock_in || todayAttendance?.clock_out) && styles.btnDisabled
+              ]} 
               onPress={() => handlePresence('out')}
+              disabled={!todayAttendance?.clock_in || !!todayAttendance?.clock_out || loading}
             >
               <View style={styles.iconCircle}>
-                <Text style={styles.btnIcon}>↑</Text>
+                <Ionicons name="log-out-outline" size={24} color={COLORS.white} />
               </View>
-              <Text style={styles.actionBtnText}>Clock Out</Text>
+              <Text style={styles.actionBtnText}>
+                {todayAttendance?.clock_out ? `Out at ${todayAttendance.clock_out.substring(0, 5)}` : 'Clock Out'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -403,6 +537,10 @@ const styles = StyleSheet.create({
   },
   btnOut: {
     backgroundColor: COLORS.error,
+  },
+  btnDisabled: {
+    backgroundColor: '#94A3B8',
+    opacity: 0.8,
   },
   iconCircle: {
     width: 40,

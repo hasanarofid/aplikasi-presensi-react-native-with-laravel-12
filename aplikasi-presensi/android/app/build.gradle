@@ -105,6 +105,10 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }
+
+    buildFeatures {
+        prefab true
+    }
 }
 
 dependencies {
@@ -115,5 +119,23 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
+    }
+}
+
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
+
+afterEvaluate {
+    def visionCameraTask = ":react-native-vision-camera:prefabReleasePackage"
+    def workletsTask = ":react-native-worklets-core:prefabReleasePackage"
+    
+    tasks.configureEach { task ->
+        if (task.name.contains("configureCMakeRel") && task.project.name == "app") {
+            try {
+                task.dependsOn(visionCameraTask)
+                task.dependsOn(workletsTask)
+            } catch (Exception e) {
+                // Task might not exist in some configurations, ignore
+            }
+        }
     }
 }

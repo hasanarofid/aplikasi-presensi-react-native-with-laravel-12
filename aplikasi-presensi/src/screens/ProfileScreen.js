@@ -2,15 +2,16 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, ScrollView } from 'react-native';
 import useAuthStore from '../store/useAuthStore';
 import { COLORS, SPACING, FONTS, SHADOWS } from '../constants/theme';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const ProfileScreen = () => {
   const { user, logout } = useAuthStore();
 
   const menuItems = [
-    { title: 'Edit Profile', subtitle: 'Update your personal information', icon: '👤' },
-    { title: 'Change Password', subtitle: 'Secure your account', icon: '🔒' },
-    { title: 'Notifications', subtitle: 'Manage app alerts', icon: '🔔' },
-    { title: 'Privacy Policy', subtitle: 'Read our terms', icon: '📄' },
+    { title: 'Edit Profile', subtitle: 'Update your personal information', icon: 'person-outline' },
+    { title: 'Change Password', subtitle: 'Secure your account', icon: 'lock-closed-outline' },
+    { title: 'Notifications', subtitle: 'Manage app alerts', icon: 'notifications-outline' },
+    { title: 'Privacy Policy', subtitle: 'Read our terms', icon: 'document-text-outline' },
   ];
 
   return (
@@ -39,7 +40,7 @@ const ProfileScreen = () => {
                 style={[styles.menuItem, index === menuItems.length - 1 && { borderBottomWidth: 0 }]}
               >
                 <View style={styles.menuIconContainer}>
-                  <Text style={styles.menuIconText}>{item.icon}</Text>
+                  <Ionicons name={item.icon} size={22} color={COLORS.primary} />
                 </View>
                 <View style={styles.menuTextContainer}>
                   <Text style={styles.menuTitle}>{item.title}</Text>
