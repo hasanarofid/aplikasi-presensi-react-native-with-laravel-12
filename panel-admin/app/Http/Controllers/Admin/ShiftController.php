@@ -31,4 +31,31 @@ class ShiftController extends Controller
 
         return redirect()->route('admin.shifts.index')->with('success', 'Shift created successfully');
     }
+
+    public function edit($id)
+    {
+        $shift = Shift::findOrFail($id);
+        return view('admin.shifts.edit', compact('shift'));
+    }
+
+    public function update(Request $request, $id)
+    {
+        $shift = Shift::findOrFail($id);
+        $request->validate([
+            'name' => 'required',
+            'start_time' => 'required',
+            'end_time' => 'required',
+        ]);
+
+        $shift->update($request->all());
+
+        return redirect()->route('admin.shifts.index')->with('success', 'Shift updated successfully');
+    }
+
+    public function destroy($id)
+    {
+        $shift = Shift::findOrFail($id);
+        $shift->delete();
+        return redirect()->route('admin.shifts.index')->with('success', 'Shift deleted successfully');
+    }
 }

@@ -3,7 +3,7 @@
 @section('title', 'System Configuration')
 
 @section('content')
-<div class="max-w-4xl">
+<div class="w-full">
     <div class="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 mb-8">
         <div class="flex items-center mb-8 pb-6 border-b border-slate-50">
             <div class="p-3 bg-blue-50 text-[#1E3A8A] rounded-xl mr-4">
